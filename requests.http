@@ -1,0 +1,199 @@
+# Optional: install the VS Code REST Client extension, then click Send Request.
+# ใส่ API keys จาก .env บนเครื่องของคุณ ห้าม commit keys จริงลงไฟล์นี้
+@baseUrl = http://127.0.0.1:8000
+@adminKey = paste_admin_key_from_dotenv
+@staffKey = paste_staff_key_from_dotenv
+@serviceKey = paste_service_key_from_dotenv
+@runId = 1
+@recommendationId = 1
+@notificationId = 1
+
+### 1. ตรวจ API และฐานข้อมูล (ไม่ต้องใช้ key)
+GET {{baseUrl}}/health
+
+### 2. สต็อกของวัน demo ทั้งหมด: ต้องได้ 128 รายการเมื่อยังใช้ CSV ต้นฉบับ
+GET {{baseUrl}}/api/v1/inventory?date=2026-10-12&limit=200&offset=0
+X-API-Key: {{staffKey}}
+
+### 3. สต็อกเฉพาะสาขา: 32 รายการ
+GET {{baseUrl}}/api/v1/inventory?date=2026-10-12&store_id=STORE_01&limit=200
+X-API-Key: {{staffKey}}
+
+### 4. เหลืออายุ 0–2 วันและมีสต็อก: ทั้ง 4 สาขาควรได้ 70 รายการ
+GET {{baseUrl}}/api/v1/inventory?date=2026-10-12&max_days=2&in_stock_only=true&limit=200
+X-API-Key: {{staffKey}}
+
+### 5. สรุป inventory
+GET {{baseUrl}}/api/v1/inventory/summary?date=2026-10-12
+X-API-Key: {{staffKey}}
+
+### 6. สาขา
+GET {{baseUrl}}/api/v1/stores
+X-API-Key: {{staffKey}}
+
+### 7. สินค้า: ชื่อ หมวด ราคา barcode ยังเป็น null หากไม่มี master เพิ่ม
+GET {{baseUrl}}/api/v1/products
+X-API-Key: {{staffKey}}
+
+### 8. ตรวจไฟล์โดยยังไม่บันทึก
+POST {{baseUrl}}/api/v1/inventory/imports?dry_run=true
+X-API-Key: {{adminKey}}
+Content-Type: multipart/form-data; boundary=FreshFlowBoundary
+
+--FreshFlowBoundary
+Content-Disposition: form-data; name="file"; filename="inventory_mock_2026-10-12.csv"
+Content-Type: text/csv
+
+< ./data/inventory_mock_2026-10-12.csv
+--FreshFlowBoundary--
+
+### 9. นำเข้าจริง: การส่งไฟล์เดิมซ้ำต้องไม่สร้าง snapshots ซ้ำ
+POST {{baseUrl}}/api/v1/inventory/imports?dry_run=false
+X-API-Key: {{adminKey}}
+Content-Type: multipart/form-data; boundary=FreshFlowBoundary
+
+--FreshFlowBoundary
+Content-Disposition: form-data; name="file"; filename="inventory_mock_2026-10-12.csv"
+Content-Type: text/csv
+
+< ./data/inventory_mock_2026-10-12.csv
+--FreshFlowBoundary--
+
+### 10. ส่ง forecast จำลองของวัน D: ไม่ใช่ค่าจาก CSV
+POST {{baseUrl}}/api/v1/predictions
+X-API-Key: {{serviceKey}}
+Content-Type: application/json
+
+{
+  "request_id": "manual-prod001-20261012-v1",
+  "store_id": "STORE_01",
+  "product_id": "PROD_001",
+  "target_date": "2026-10-12",
+  "predicted_units": 3.0,
+  "prediction_kind": "BASELINE_SALES_PROXY",
+  "model_version": "manual_mock_v1",
+  "source": "MOCK",
+  "contains_weather_effect": false
+}
+
+### 11. ส่ง forecast จำลองของวัน D+1
+POST {{baseUrl}}/api/v1/predictions
+X-API-Key: {{serviceKey}}
+Content-Type: application/json
+
+{
+  "request_id": "manual-prod001-20261013-v1",
+  "store_id": "STORE_01",
+  "product_id": "PROD_001",
+  "target_date": "2026-10-13",
+  "predicted_units": 3.0,
+  "prediction_kind": "BASELINE_SALES_PROXY",
+  "model_version": "manual_mock_v1",
+  "source": "MOCK",
+  "contains_weather_effect": false
+}
+
+### 12. ดูผล forecast ที่บันทึก
+GET {{baseUrl}}/api/v1/predictions?store_id=STORE_01&product_id=PROD_001
+X-API-Key: {{staffKey}}
+
+### 13. อากาศจำลองวัน D: ไม่ใช่อากาศจริง
+POST {{baseUrl}}/api/v1/weather/mock
+X-API-Key: {{serviceKey}}
+Content-Type: application/json
+
+{
+  "request_id": "manual-rain-store01-20261012-v1",
+  "scenario_id": "manual-rain-demo",
+  "store_id": "STORE_01",
+  "target_date": "2026-10-12",
+  "condition": "Rain",
+  "temperature_c": 29.0,
+  "rain_mm_1h": 2.0
+}
+
+### 14. อากาศจำลองวัน D+1
+POST {{baseUrl}}/api/v1/weather/mock
+X-API-Key: {{serviceKey}}
+Content-Type: application/json
+
+{
+  "request_id": "manual-rain-store01-20261013-v1",
+  "scenario_id": "manual-rain-demo",
+  "store_id": "STORE_01",
+  "target_date": "2026-10-13",
+  "condition": "Rain",
+  "temperature_c": 29.0,
+  "rain_mm_1h": 2.0
+}
+
+### 15. อ่านข้อมูลอากาศ
+GET {{baseUrl}}/api/v1/weather?store_id=STORE_01
+X-API-Key: {{staffKey}}
+
+### 16. ประมวลผลสาขา: ส่ง request_id เดิมกับ payload เดิมจะอ้างอิง run เดิม
+# ถ้าต้องการชุด demo ครบทุกสินค้า ให้รัน CLI seed-demo ก่อน
+# ตัวอย่าง manual ด้านบนสร้าง forecast ให้เพียง PROD_001; รายการอื่นอาจ DATA_NOT_READY
+POST {{baseUrl}}/api/v1/recommendation-runs
+X-API-Key: {{staffKey}}
+Content-Type: application/json
+
+{
+  "request_id": "manual-run-store01-20261012-rulesv1",
+  "snapshot_date": "2026-10-12",
+  "store_id": "STORE_01",
+  "scenario_id": "manual-rain-demo",
+  "rule_version": "rules_v1",
+  "prediction_source": "MOCK"
+}
+
+### 17. ดูสถานะ run: แก้ runId ด้านบนเป็น ID จาก response
+GET {{baseUrl}}/api/v1/recommendation-runs/{{runId}}
+X-API-Key: {{staffKey}}
+
+### 18. อ่านผลคำแนะนำ
+GET {{baseUrl}}/api/v1/recommendations?date=2026-10-12&store_id=STORE_01
+X-API-Key: {{staffKey}}
+
+### 19. อนุมัติคำแนะนำ: แก้ recommendationId ให้ตรงรายการที่ต้องการ
+PATCH {{baseUrl}}/api/v1/recommendations/{{recommendationId}}/status
+X-API-Key: {{adminKey}}
+Content-Type: application/json
+
+{
+  "status": "APPROVED"
+}
+
+### 20. ปฏิเสธคำแนะนำ (เลือกใช้กับรายการที่เหมาะสม)
+PATCH {{baseUrl}}/api/v1/recommendations/{{recommendationId}}/status
+X-API-Key: {{adminKey}}
+Content-Type: application/json
+
+{
+  "status": "REJECTED"
+}
+
+### 21. Dashboard
+GET {{baseUrl}}/api/v1/dashboard/summary?date=2026-10-12&store_id=STORE_01
+X-API-Key: {{staffKey}}
+
+### 22. ดีลที่พร้อมเผยแพร่ (ไม่ต้องใช้ key)
+# สินค้าที่ไม่มีราคาไม่ควรสร้างราคาดีลขึ้นเอง; CSV ต้นฉบับยังไม่มีราคา
+GET {{baseUrl}}/api/v1/deals?date=2026-10-12&store_id=STORE_01
+
+### 23. การแจ้งเตือนภายในระบบ
+GET {{baseUrl}}/api/v1/notifications
+X-API-Key: {{staffKey}}
+
+### 24. ทำเครื่องหมายอ่านแล้ว: แก้ notificationId ตามผลที่อ่านได้
+PATCH {{baseUrl}}/api/v1/notifications/{{notificationId}}/read
+X-API-Key: {{staffKey}}
+
+### 25. ทดสอบสิทธิ์: staff ไม่ควรแก้ product master ได้
+PATCH {{baseUrl}}/api/v1/products/PROD_001
+X-API-Key: {{staffKey}}
+Content-Type: application/json
+
+{
+  "product_name": "ตัวอย่างสำหรับทดสอบสิทธิ์"
+}

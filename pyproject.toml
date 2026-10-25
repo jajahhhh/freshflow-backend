@@ -1,0 +1,16 @@
+[project]
+name = "freshflow-backend"
+version = "0.1.0"
+description = "FreshFlow Student 2 inventory and recommendation prototype"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]
